@@ -452,6 +452,7 @@ func (p *asyncProducer) dispatcher() {
 
 		size := msg.ByteSize(version)
 		if size > p.conf.Producer.MaxMessageBytes {
+			Logger.Printf(fmt.Sprintf("Attempt to produce message larger than configured Producer.MaxMessageBytes: %d > %d", size, p.conf.Producer.MaxMessageBytes))
 			p.returnError(msg, ConfigurationError(fmt.Sprintf("Attempt to produce message larger than configured Producer.MaxMessageBytes: %d > %d", size, p.conf.Producer.MaxMessageBytes)))
 			continue
 		}
@@ -975,6 +976,7 @@ func (bp *brokerProducer) run() {
 				}
 			}
 			if err := bp.buffer.add(msg); err != nil {
+				Logger.Printf("producer/broker/%d failed to add message to buffer: %s\n", bp.broker.ID(), err)
 				bp.parent.returnError(msg, err)
 				continue
 			}
@@ -1295,6 +1297,7 @@ func (p *asyncProducer) returnError(msg *ProducerMessage, err error) {
 	msg.clear()
 	pErr := &ProducerError{Msg: msg, Err: err}
 	if p.conf.Producer.Return.Errors {
+		Logger.Printf("producer/producer returning error %v\n", pErr)
 		p.errors <- pErr
 	} else {
 		Logger.Println(pErr)
