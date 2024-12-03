@@ -939,7 +939,8 @@ func (bp *brokerProducer) run() {
 
 			if reason := bp.needsRetry(msg); reason != nil {
 				bp.parent.retryMessage(msg, reason)
-
+				Logger.Printf("producer/broker/%d need retry message on %s/%d, since %s\n",
+					bp.broker.ID(), msg.Topic, msg.Partition, reason)
 				if bp.closing == nil && msg.flags&fin == fin {
 					// we were retrying this partition but we can start processing again
 					delete(bp.currentRetries[msg.Topic], msg.Partition)
@@ -962,6 +963,8 @@ func (bp *brokerProducer) run() {
 				Logger.Printf("producer/broker/%d maximum request accumulated, waiting for space\n", bp.broker.ID())
 				if err := bp.waitForSpace(msg, false); err != nil {
 					bp.parent.retryMessage(msg, err)
+					Logger.Printf("producer/broker/%d need retry message on %s/%d, since wait for space meet error %s\n",
+						bp.broker.ID(), msg.Topic, msg.Partition, err)
 					continue
 				}
 			}
@@ -1145,9 +1148,13 @@ func (bp *brokerProducer) handleSuccess(sent *produceSet, response *ProduceRespo
 					go bp.parent.retryBatch(topic, partition, pSet, block.Err)
 				} else {
 					bp.parent.retryMessages(pSet.msgs, block.Err)
+					Logger.Printf("producer/broker/%d need retry message on %s/%d, since %v\n",
+						bp.broker.ID(), topic, partition, block.Err)
 				}
 				// dropping the following messages has the side effect of incrementing their retry count
 				bp.parent.retryMessages(bp.buffer.dropPartition(topic, partition), block.Err)
+				Logger.Printf("producer/broker/%d need retry message on %s/%d, since %v\n",
+					bp.broker.ID(), topic, partition, block.Err)
 			}
 		})
 	}
