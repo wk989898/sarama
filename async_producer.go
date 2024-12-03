@@ -1,6 +1,7 @@
 package sarama
 
 import (
+	"bytes"
 	"encoding/binary"
 	"errors"
 	"fmt"
@@ -226,6 +227,17 @@ func (m *ProducerMessage) clear() {
 	m.sequenceNumber = 0
 	m.producerEpoch = 0
 	m.hasSequence = false
+}
+
+func (m *ProducerMessage) headerString() string {
+	var headers bytes.Buffer
+	for idx, header := range m.Headers {
+		headers.WriteString(fmt.Sprintf("%s:%s", header.Key, header.Value))
+		if idx != len(m.Headers)-1 {
+			headers.WriteString(", ")
+		}
+	}
+	return headers.String()
 }
 
 // ProducerError is the type of error generated when the producer fails to deliver a message.
@@ -938,9 +950,9 @@ func (bp *brokerProducer) run() {
 			}
 
 			if reason := bp.needsRetry(msg); reason != nil {
+				Logger.Printf("producer/broker/%d need retry message on %s/%d, %d, %s, since %s\n",
+					bp.broker.ID(), msg.Topic, msg.Partition, msg.Offset, reason)
 				bp.parent.retryMessage(msg, reason)
-				Logger.Printf("producer/broker/%d need retry message on %s/%d, since %s\n",
-					bp.broker.ID(), msg.Topic, msg.Partition, reason)
 				if bp.closing == nil && msg.flags&fin == fin {
 					// we were retrying this partition but we can start processing again
 					delete(bp.currentRetries[msg.Topic], msg.Partition)
@@ -962,9 +974,9 @@ func (bp *brokerProducer) run() {
 			if bp.buffer.wouldOverflow(msg) {
 				Logger.Printf("producer/broker/%d maximum request accumulated, waiting for space\n", bp.broker.ID())
 				if err := bp.waitForSpace(msg, false); err != nil {
+					Logger.Printf("producer/broker/%d need retry message on %s/%d, %d, since wait for space meet error %s\n",
+						bp.broker.ID(), msg.Topic, msg.Partition, msg.Offset, cerr)
 					bp.parent.retryMessage(msg, err)
-					Logger.Printf("producer/broker/%d need retry message on %s/%d, since wait for space meet error %s\n",
-						bp.broker.ID(), msg.Topic, msg.Partition, err)
 					continue
 				}
 			}
@@ -1147,14 +1159,14 @@ func (bp *brokerProducer) handleSuccess(sent *produceSet, response *ProduceRespo
 				if bp.parent.conf.Producer.Idempotent {
 					go bp.parent.retryBatch(topic, partition, pSet, block.Err)
 				} else {
-					bp.parent.retryMessages(pSet.msgs, block.Err)
 					Logger.Printf("producer/broker/%d need retry message on %s/%d, since %v\n",
 						bp.broker.ID(), topic, partition, block.Err)
+					bp.parent.retryMessages(pSet.msgs, block.Err)
 				}
 				// dropping the following messages has the side effect of incrementing their retry count
-				bp.parent.retryMessages(bp.buffer.dropPartition(topic, partition), block.Err)
 				Logger.Printf("producer/broker/%d need retry message on %s/%d, since %v\n",
 					bp.broker.ID(), topic, partition, block.Err)
+				bp.parent.retryMessages(bp.buffer.dropPartition(topic, partition), block.Err)
 			}
 		})
 	}
@@ -1331,6 +1343,8 @@ func (p *asyncProducer) retryMessage(msg *ProducerMessage, err error) {
 	} else {
 		msg.retries++
 		p.retries <- msg
+		Logger.Printf("retry message on %s/%d, %d, %s, since %v\n",
+			msg.Topic, msg.Partition, msg.Offset, msg.headerString(), err)
 	}
 }
 
