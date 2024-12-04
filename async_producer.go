@@ -951,7 +951,7 @@ func (bp *brokerProducer) run() {
 
 			if reason := bp.needsRetry(msg); reason != nil {
 				Logger.Printf("producer/broker/%d need retry message on %s/%d, %d, %s, since %s\n",
-					bp.broker.ID(), msg.Topic, msg.Partition, msg.Offset, reason)
+					bp.broker.ID(), msg.Topic, msg.Partition, msg.Offset, msg.headerString(), reason)
 				bp.parent.retryMessage(msg, reason)
 				if bp.closing == nil && msg.flags&fin == fin {
 					// we were retrying this partition but we can start processing again
@@ -975,7 +975,7 @@ func (bp *brokerProducer) run() {
 				Logger.Printf("producer/broker/%d maximum request accumulated, waiting for space\n", bp.broker.ID())
 				if err := bp.waitForSpace(msg, false); err != nil {
 					Logger.Printf("producer/broker/%d need retry message on %s/%d, %d, since wait for space meet error %s\n",
-						bp.broker.ID(), msg.Topic, msg.Partition, msg.Offset, cerr)
+						bp.broker.ID(), msg.Topic, msg.Partition, msg.Offset, err)
 					bp.parent.retryMessage(msg, err)
 					continue
 				}
