@@ -1,6 +1,7 @@
 package sarama
 
 import (
+	"bytes"
 	"encoding/binary"
 	"fmt"
 	"sync"
@@ -255,6 +256,17 @@ func (m *ProducerMessage) clear() {
 	m.sequenceNumber = 0
 	m.producerEpoch = 0
 	m.hasSequence = false
+}
+
+func (m *ProducerMessage) headerString() string {
+	var headers bytes.Buffer
+	for idx, header := range m.Headers {
+		headers.WriteString(fmt.Sprintf("%s:%s", header.Key, header.Value))
+		if idx != len(m.Headers)-1 {
+			headers.WriteString(", ")
+		}
+	}
+	return headers.String()
 }
 
 // ProducerError is the type of error generated when the producer fails to deliver a message.
@@ -768,8 +780,8 @@ func (bp *brokerProducer) run() {
 			}
 
 			if reason := bp.needsRetry(msg); reason != nil {
-				Logger.Printf("producer/broker/%d need retry message on %s/%d, %d, %v, since %s\n",
-					bp.broker.ID(), msg.Topic, msg.Partition, msg.Offset, msg.Headers, reason)
+				Logger.Printf("producer/broker/%d need retry message on %s/%d, %d, %s, since %s\n",
+					bp.broker.ID(), msg.Topic, msg.Partition, msg.Offset, msg.headerString(), reason)
 				bp.parent.retryMessage(msg, reason)
 				if bp.closing == nil && msg.flags&fin == fin {
 					// we were retrying this partition but we can start processing again
@@ -1121,8 +1133,8 @@ func (p *asyncProducer) retryMessage(msg *ProducerMessage, err error) {
 		msg.Headers = append(msg.Headers, RecordHeader{Key: key, Value: val})
 		msg.Value = ByteEncoder(kv)
 		p.retries <- msg
-		Logger.Printf("retry message on %s/%d, %d, %v, since %v\n",
-			msg.Topic, msg.Partition, msg.Offset, msg.Headers, err)
+		Logger.Printf("retry message on %s/%d, %d, %s, since %v\n",
+			msg.Topic, msg.Partition, msg.Offset, msg.headerString(), err)
 	}
 }
 
