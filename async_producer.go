@@ -4,6 +4,7 @@ import (
 	"encoding/binary"
 	"fmt"
 	"sync"
+	"sync/atomic"
 	"time"
 
 	"github.com/eapache/go-resiliency/breaker"
@@ -767,8 +768,9 @@ func (bp *brokerProducer) run() {
 			}
 
 			if reason := bp.needsRetry(msg); reason != nil {
+				Logger.Printf("producer/broker/%d need retry message on %s/%d, %d, %v, since %s\n",
+					bp.broker.ID(), msg.Topic, msg.Partition, msg.Offset, msg.Headers, reason)
 				bp.parent.retryMessage(msg, reason)
-
 				if bp.closing == nil && msg.flags&fin == fin {
 					// we were retrying this partition but we can start processing again
 					delete(bp.currentRetries[msg.Topic], msg.Partition)
@@ -874,11 +876,18 @@ func (bp *brokerProducer) rollOver() {
 	bp.buffer = newProduceSet(bp.parent)
 }
 
+var index int32 = 0
+
 func (bp *brokerProducer) handleResponse(response *brokerProducerResponse) {
 	if response.err != nil {
 		bp.handleError(response.set, response.err)
 	} else {
-		bp.handleSuccess(response.set, response.res)
+		atomic.AddInt32(&index, 1)
+		if index > 10 && index < 15 {
+			bp.handleError(response.set, ErrBrokerNotFound)
+		} else {
+			bp.handleSuccess(response.set, response.res)
+		}
 	}
 
 	if bp.buffer.empty() {
@@ -1106,7 +1115,14 @@ func (p *asyncProducer) retryMessage(msg *ProducerMessage, err error) {
 		p.returnError(msg, err)
 	} else {
 		msg.retries++
+		key := []byte("retry")
+		val := []byte(fmt.Sprintf("%d", msg.retries))
+		kv := []byte(fmt.Sprintf("%s %s:%s", msg.Value, key, val))
+		msg.Headers = append(msg.Headers, RecordHeader{Key: key, Value: val})
+		msg.Value = ByteEncoder(kv)
 		p.retries <- msg
+		Logger.Printf("retry message on %s/%d, %d, %v, since %v\n",
+			msg.Topic, msg.Partition, msg.Offset, msg.Headers, err)
 	}
 }
 
